@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyxis-storage
+spec:
+  selector:
+    matchLabels:
+      app: pyxis-storage
+  template:
+    metadata:
+      labels:
+        app: pyxis-storage
+    spec:
+      containers:
+        - name: storage-server
+          image: shengqipku/pyxis-storage:latest
+          command:
+            - /bin/bash
+            - -c
+            - "/pyxis/storage --workers=${WORKERS}"
+          env:
+            - name: WORKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: storage-config
+                  key: WORKERS
+      # nodeSelector:
+      #   node-restriction.kubernetes.io/placement_label: storage-server
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyxis-storage
+spec:
+  selector:
+    app: pyxis-storage
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8081
+  type: ClusterIP

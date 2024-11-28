@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyxis-compute
+spec:
+  selector:
+    matchLabels:
+      app: pyxis-compute
+  template:
+    metadata:
+      labels:
+        app: pyxis-compute
+    spec:
+      containers:
+        - name: compute-server
+          image: shengqipku/pyxis-compute:latest
+          command:
+            - /bin/bash
+            - -c
+            - "/pyxis/compute --workers=${WORKERS}"
+          env:
+            - name: WORKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: compute-config
+                  key: WORKERS
+      # nodeSelector:
+      #   node-restriction.kubernetes.io/placement_label: compute-server
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyxis-compute
+spec:
+  selector:
+    app: pyxis-compute
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
