@@ -8,6 +8,8 @@ set -ex
 REGISTRY=shengqipku
 TAG=${TAG:-"latest"}
 
+export DOCKER_BUILDKIT=1
+
 function build {
     targets=("compute" "storage")
     if [ "$#" -gt 0 ]; then
@@ -18,7 +20,7 @@ function build {
     cd $ROOT_DIR
     for target in ${targets[@]}; do
         image=$REGISTRY/pyxis-$target:$TAG
-        docker build --build-arg TARGET=$target \
+        docker build --platform linux/amd64 --build-arg TARGET=$target \
             -f $ROOT_DIR/build/Dockerfile.server \
             -t $image .
         docker push $image

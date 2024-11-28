@@ -1,4 +1,4 @@
-FROM golang:1.22.9 as BUILDER
+FROM golang:1.22.9 AS builder
 
 ARG TARGET
 
@@ -9,11 +9,13 @@ COPY . .
 # Cache for repeated builds
 RUN go mod download
 
-RUN go build -mod=readonly -v -o build/${TARGET} cmd/${TARGET}/main.go
+RUN GOARCH=amd64 GOOS=linux go build -mod=readonly -v -o /src/build/${TARGET} cmd/${TARGET}/main.go
 
 FROM debian:stable-slim
+
+ARG TARGET
 
 WORKDIR /pyxis
 
 # Copy the binary to the production image from the BUILDER stage.
-COPY --from=BUILDER /src/build/${TARGET} /pyxis/${TARGET}
+COPY --from=builder /src/build/${TARGET} /pyxis/${TARGET}
