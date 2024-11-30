@@ -9,6 +9,7 @@ import (
 
 	"github.com/tomquartz/pyxis-k8s/pkg/gateway"
 	"github.com/tomquartz/pyxis-k8s/pkg/workload"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type Client struct {
@@ -44,6 +45,7 @@ func (c *Client) Connect(gateway *gateway.Gateway) {
 }
 
 func (c *Client) Run(ctx context.Context) {
+	logger := log.FromContext(ctx)
 	id := 0
 	send := func() {
 		id++
@@ -57,6 +59,9 @@ func (c *Client) Run(ctx context.Context) {
 		select {
 		case resp := <-c.recvChan:
 			c.results = append(c.results, resp)
+			if resp.Status != workload.SUCCESS {
+				logger.Error(fmt.Errorf(resp.Result), "client received error response", "code", resp.Status)
+			}
 			send()
 		case <-ctx.Done():
 			c.duration = time.Since(start)
@@ -98,6 +103,7 @@ func (c *Client) Summary() string {
 		slowdownSum += this
 	}
 	// percentiles
+	sort.Float64s(slowdowns)
 	slowdownAvg := slowdownSum / float64(len(slowdowns))
 	slowdownP50 := slowdowns[len(slowdowns)/2]
 	slowdownP99 := slowdowns[len(slowdowns)*99/100]

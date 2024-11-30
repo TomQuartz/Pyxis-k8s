@@ -29,13 +29,14 @@ func NewComputeServer(nWorkers int) *ComputeServer {
 
 func (s *ComputeServer) Serve(w http.ResponseWriter, r *http.Request) {
 	req := &workload.ClientRequest{}
-	req = req.SetResponseWriter(w)
 	err := json.NewDecoder(r.Body).Decode(req)
+	req = req.SetResponseWriter(w)
 	if err != nil {
 		req.Error(fmt.Sprintf("failed to decode request: %v", err), http.StatusBadRequest)
 		return
 	}
 	s.workerChan <- req
+	<-req.Done()
 }
 
 func (s *ComputeServer) Run(ctx context.Context) {
@@ -47,9 +48,8 @@ func (s *ComputeServer) Run(ctx context.Context) {
 	defer close(s.workerChan)
 
 	logger.Info("Starting compute server", "nWorkers", s.nWorkers)
-	port := workload.ComputeServicePort
 	http.HandleFunc("/", s.Serve)
-	if err := http.ListenAndServe(port, nil); err != http.ErrServerClosed {
+	if err := http.ListenAndServe(workload.ComputeListenPort, nil); err != http.ErrServerClosed {
 		logger.Error(err, "Failed to run compute server")
 	} else {
 		logger.Info("Compute server stopped")
@@ -76,6 +76,7 @@ func (w *ComputeWorker) HandleRequest(logger logr.Logger, req *workload.ClientRe
 	if req.ResponseWriter == nil {
 		panic("missing response writer")
 	}
+	defer req.Close()
 	logger.V(1).Info("processing request", "request", req.ID)
 
 	// kv accesses
@@ -90,7 +91,7 @@ func (w *ComputeWorker) HandleRequest(logger logr.Logger, req *workload.ClientRe
 			req.Error(fmt.Sprintf("failed to encode kv req to key: %v", key), http.StatusBadRequest)
 			return
 		}
-		_, err = http.Post(workload.StorageKVURL, "application/json", bytes.NewReader(kvReqJson))
+		_, err = http.Post(workload.StorageKVInternalURL, "application/json", bytes.NewReader(kvReqJson))
 		if err != nil {
 			req.Error(fmt.Sprintf("failed to post kv req to key %v: %v", key, err), http.StatusInternalServerError)
 			return
@@ -106,6 +107,7 @@ func (w *ComputeWorker) HandleRequest(logger logr.Logger, req *workload.ClientRe
 	// reply
 	logger.V(1).Info("finish request", "request", req.ID)
 	resp := &workload.ClientResponse{
+		ID:              req.ID,
 		StorageTimeSecs: kvTime.Seconds(),
 		ComputeTimeSecs: computeTime.Seconds(),
 	}

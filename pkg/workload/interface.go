@@ -19,21 +19,31 @@ type ClientRequest struct {
 	StorageKeys    []string `json:"storageKeys"`
 	ComputeSecs    float64  `json:"computeSecs"`
 	ResponseWriter http.ResponseWriter
+	done           chan struct{}
 }
 
 func (c *ClientRequest) SetResponseWriter(w http.ResponseWriter) *ClientRequest {
 	c.ResponseWriter = w
+	c.done = make(chan struct{})
 	return c
+}
+
+func (c *ClientRequest) Done() <-chan struct{} {
+	return c.done
+}
+
+func (c *ClientRequest) Close() {
+	close(c.done)
 }
 
 func (c *ClientRequest) Error(msg string, code int) {
 	http.Error(c.ResponseWriter, msg, code)
 }
 
-func (c *ClientRequest) Reply(response *ClientResponse) {
+func (c *ClientRequest) Reply(response *ClientResponse) error {
 	c.ResponseWriter.Header().Set("Content-Type", "application/json")
 	c.ResponseWriter.WriteHeader(http.StatusOK)
-	json.NewEncoder(c.ResponseWriter).Encode(response)
+	return json.NewEncoder(c.ResponseWriter).Encode(response)
 }
 
 const (
@@ -47,36 +57,45 @@ const (
 
 type ClientResponse struct {
 	ID              string  `json:"id"`
-	Status          int     `json:"status"`
-	Result          string  `json:"result"`
+	Status          int     `json:"status,omitempty"`
+	Result          string  `json:"result,omitempty"`
 	StorageTimeSecs float64 `json:"storageTimeSecs"`
 	ComputeTimeSecs float64 `json:"computeTimeSecs"`
 	Latency         time.Duration
 }
 
 type StorageRequest struct {
-	ID             string         `json:"id"`
-	Pushdown       *ClientRequest `json:"pushdown,omitempty"`
-	Key            string         `json:"key,omitempty"`
+	ID             string `json:"id"`
+	Key            string `json:"key,omitempty"`
 	ResponseWriter http.ResponseWriter
+	done           chan struct{}
 }
 
 type StorageResponse struct {
-	ID    string
-	Value string
+	ID    string `json:"id"`
+	Value string `json:"value"`
 }
 
 func (s *StorageRequest) SetResponseWriter(w http.ResponseWriter) *StorageRequest {
 	s.ResponseWriter = w
+	s.done = make(chan struct{})
 	return s
+}
+
+func (s *StorageRequest) Done() <-chan struct{} {
+	return s.done
+}
+
+func (s *StorageRequest) Close() {
+	close(s.done)
 }
 
 func (s *StorageRequest) Error(msg string, code int) {
 	http.Error(s.ResponseWriter, msg, code)
 }
 
-func (s *StorageRequest) Reply(response *StorageResponse) {
+func (s *StorageRequest) Reply(response *StorageResponse) error {
 	s.ResponseWriter.Header().Set("Content-Type", "application/json")
 	s.ResponseWriter.WriteHeader(http.StatusOK)
-	json.NewEncoder(s.ResponseWriter).Encode(response)
+	return json.NewEncoder(s.ResponseWriter).Encode(response)
 }

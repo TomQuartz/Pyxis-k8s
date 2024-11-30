@@ -2,14 +2,16 @@ package workload
 
 const (
 	// compute
-	ComputeServiceName = "pyxis-compute" + ".svc.cluster.local"
-	ComputeServicePort = ":8080"
-	ComputeURL         = "http://" + ComputeServiceName + ComputeServicePort
+	ComputeListenPort      = ":8080"
+	ComputeServiceNodePort = ":30080"
+	ComputeServiceURL      = "http://localhost" + ComputeServiceNodePort
 	// storage
-	StorageServiceName  = "pyxis-storage" + ".svc.cluster.local"
-	StorageServicePort  = ":8081"
-	StorageKVPath       = "/kv"
-	StoragePushdownPath = "/pushdown"
-	StorageKVURL        = "http://" + StorageServiceName + StorageServicePort + StorageKVPath
-	StoragePushdownURL  = "http://" + StorageServiceName + StorageServicePort + StoragePushdownPath
+	StorageListenPort      = ":8081"
+	StorageServiceNodePort = ":30081"
+	// compute-to-storage (in-cluster)
+	StorageKVPath        = "/kv"
+	StorageKVInternalURL = "http://pyxis-storage" + StorageKVPath // resolves to pyxis-storage.<ns>.svc.cluster.local
+	// client-to-storage (out-of-cluster)
+	StoragePushdownPath       = "/pushdown"
+	StoragePushdownServiceURL = "http://localhost" + StorageServiceNodePort + StoragePushdownPath
 )

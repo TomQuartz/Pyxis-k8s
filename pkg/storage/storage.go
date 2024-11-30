@@ -16,26 +16,39 @@ const StorageServerChanSize = 256
 const KVAccessTimeSimulated = 10 * time.Microsecond
 
 type StorageServer struct {
-	workerChan chan *workload.StorageRequest
+	workerChan chan interface{}
 	nWorkers   int
 }
 
 func NewStorageServer(nWorkers int) *StorageServer {
 	return &StorageServer{
-		workerChan: make(chan *workload.StorageRequest, StorageServerChanSize),
+		workerChan: make(chan interface{}, StorageServerChanSize),
 		nWorkers:   nWorkers,
 	}
 }
 
-func (s *StorageServer) Serve(w http.ResponseWriter, r *http.Request) {
+func (s *StorageServer) ServeKV(w http.ResponseWriter, r *http.Request) {
 	req := &workload.StorageRequest{}
-	req = req.SetResponseWriter(w)
 	err := json.NewDecoder(r.Body).Decode(req)
+	req = req.SetResponseWriter(w)
 	if err != nil {
 		req.Error(fmt.Sprintf("failed to decode request: %v", err), http.StatusBadRequest)
 		return
 	}
 	s.workerChan <- req
+	<-req.Done()
+}
+
+func (s *StorageServer) ServePushdown(w http.ResponseWriter, r *http.Request) {
+	req := &workload.ClientRequest{}
+	err := json.NewDecoder(r.Body).Decode(req)
+	req = req.SetResponseWriter(w)
+	if err != nil {
+		req.Error(fmt.Sprintf("failed to decode request: %v", err), http.StatusBadRequest)
+		return
+	}
+	s.workerChan <- req
+	<-req.Done()
 }
 
 func (s *StorageServer) Run(ctx context.Context) {
@@ -47,10 +60,9 @@ func (s *StorageServer) Run(ctx context.Context) {
 	defer close(s.workerChan)
 
 	logger.Info("Starting storage server", "nWorkers", s.nWorkers)
-	port := workload.StorageServicePort
-	http.HandleFunc(workload.StorageKVPath, s.Serve)
-	http.HandleFunc(workload.StoragePushdownPath, s.Serve)
-	if err := http.ListenAndServe(port, nil); err != http.ErrServerClosed {
+	http.HandleFunc(workload.StorageKVPath, s.ServeKV)
+	http.HandleFunc(workload.StoragePushdownPath, s.ServePushdown)
+	if err := http.ListenAndServe(workload.StorageListenPort, nil); err != http.ErrServerClosed {
 		logger.Error(err, "Failed to run storage server")
 	} else {
 		logger.Info("Storage server stopped")
@@ -59,10 +71,10 @@ func (s *StorageServer) Run(ctx context.Context) {
 
 type StorageWorker struct {
 	id    int
-	input chan *workload.StorageRequest
+	input chan interface{}
 }
 
-func NewStorageWorker(id int, input chan *workload.StorageRequest) *StorageWorker {
+func NewStorageWorker(id int, input chan interface{}) *StorageWorker {
 	return &StorageWorker{id: id, input: input}
 }
 
@@ -73,25 +85,35 @@ func (w *StorageWorker) Run(ctx context.Context) {
 	}
 }
 
-func (w *StorageWorker) HandleRequest(logger logr.Logger, req *workload.StorageRequest) {
-	if req.ResponseWriter == nil {
-		panic("missing response writer")
-	}
-
-	if req.Pushdown != nil {
-		w.HandlePushdown(logger, req.Pushdown)
-	} else {
+func (w *StorageWorker) HandleRequest(logger logr.Logger, req interface{}) {
+	switch req := req.(type) {
+	case *workload.StorageRequest:
 		w.HandleKV(logger, req)
+	case *workload.ClientRequest:
+		w.HandlePushdown(logger, req)
+	default:
+		logger.Error(fmt.Errorf("unknown request type: %T", req), "failed to handle request")
 	}
 }
 
 func (w *StorageWorker) HandleKV(logger logr.Logger, req *workload.StorageRequest) {
+	if req.ResponseWriter == nil {
+		panic("missing response writer")
+	}
+	defer req.Close()
 	logger.V(1).Info("processing kv request", "request", req.ID)
 	time.Sleep(KVAccessTimeSimulated)
-	req.Reply(&workload.StorageResponse{ID: req.ID, Value: "value"})
+	if err := req.Reply(&workload.StorageResponse{ID: req.ID, Value: "value"}); err != nil {
+		logger.Error(err, "failed to reply", "request", req.ID)
+	}
+	logger.V(1).Info("finish kv request", "request", req.ID)
 }
 
 func (w *StorageWorker) HandlePushdown(logger logr.Logger, req *workload.ClientRequest) {
+	if req.ResponseWriter == nil {
+		panic("missing response writer")
+	}
+	defer req.Close()
 	logger.V(1).Info("processing pushdown request", "request", req.ID)
 
 	// kv accesses
@@ -108,8 +130,12 @@ func (w *StorageWorker) HandlePushdown(logger logr.Logger, req *workload.ClientR
 
 	// reply
 	resp := &workload.ClientResponse{
+		ID:              req.ID,
 		StorageTimeSecs: kvTime.Seconds(),
 		ComputeTimeSecs: computeTime.Seconds(),
 	}
-	req.Reply(resp)
+	if err := req.Reply(resp); err != nil {
+		logger.Error(err, "failed to reply", "request", req.ID)
+	}
+	logger.V(1).Info("finish pushdown request", "request", req.ID)
 }

@@ -1,20 +1,14 @@
-// type TaskProfile struct {
-// 	TypeID      int     `json:"typeID"`
-// 	Percentage  float64 `json:"percentage"`
-// 	NumKV       int     `json:"numKV"`
-// 	ComputeSecs float64 `json:"computeSecs"`
-// }
 [
+    {
+        "typeID": 0,
+        "percentage": 0.5,
+        "numKV": 1,
+        "computeSecs": 0.01
+    },
     {
         "typeID": 1,
         "percentage": 0.5,
-        "numKV": 1,
-        "computeSecs": 0.01 // 10ms
-    },
-    {
-        "typeID": 2,
-        "percentage": 0.5,
         "numKV": 4,
-        "computeSecs": 0.0001 // 0.1ms
+        "computeSecs": 0.0001
     }
 ]

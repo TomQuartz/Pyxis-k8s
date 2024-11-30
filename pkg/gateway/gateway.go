@@ -49,8 +49,9 @@ func (g *Gateway) Run(ctx context.Context) {
 
 // assume req is assigned ID
 func (g *Gateway) handleRequest(ctx context.Context, req *workload.ClientRequest) {
-	resp := &workload.ClientResponse{ID: req.ID}
+	resp := &workload.ClientResponse{}
 	defer func() {
+		resp.ID = req.ID
 		g.responseChan <- resp
 	}()
 	reqBytes, err := json.Marshal(req)
@@ -65,16 +66,16 @@ func (g *Gateway) handleRequest(ctx context.Context, req *workload.ClientRequest
 	var postURL string
 	switch decision {
 	case arbiter.ToCompute:
-		postURL = workload.ComputeURL
+		postURL = workload.ComputeServiceURL
 	case arbiter.ToStorage:
-		postURL = workload.StoragePushdownURL
+		postURL = workload.StoragePushdownServiceURL
 	default:
 		resp.Status = workload.FAIL_SCHEDULE
 		resp.Result = "invalid arbiter decision"
 		return
 	}
 	// post
-	postCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	postCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(postCtx, http.MethodPost, postURL, bytes.NewReader(reqBytes))
 	if err != nil {
@@ -108,4 +109,8 @@ func (g *Gateway) handleRequest(ctx context.Context, req *workload.ClientRequest
 	}
 	resp.Status = workload.SUCCESS
 	resp.Latency = time.Since(start)
+	if resp.ComputeTimeSecs <= 0 || resp.StorageTimeSecs <= 0 {
+		resp.Status = workload.FAIL_UNMARSHAL
+		resp.Result = "invalid response: zero compute or storage time: " + resp.Result
+	}
 }
