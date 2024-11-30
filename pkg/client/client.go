@@ -93,7 +93,7 @@ func (c *Client) Summary() string {
 	// tput
 	tput := float64(len(c.results)) / c.duration.Seconds()
 	// slowdown
-	prewarm := int(float64(len(c.results)) * 0.2)
+	prewarm := int(float64(len(c.results)) * 0.4)
 	results := c.results[prewarm:]
 	slowdowns := make([]float64, len(results))
 	slowdownSum := 0.

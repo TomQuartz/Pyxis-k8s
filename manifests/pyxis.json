@@ -1,7 +1,7 @@
 {
     "intervalSecs": 1,
     "startPoint": 0.5,
-    "stepSize": 0.2,
+    "stepSizeRel": 0.2,
     "stopPrecision": 0.01,
-    "referencePoint": 0.5
+    "referencePoint": -1
 }

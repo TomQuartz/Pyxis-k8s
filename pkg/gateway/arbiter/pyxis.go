@@ -25,6 +25,7 @@ type Pyxis struct {
 	upperbound       int64
 	taskBoundary     [][]float64
 	cfg              *PyxisConfig
+	logger           logr.Logger
 }
 
 // assume profile order: compute-intensive -> io-intensive
@@ -49,20 +50,22 @@ func NewPyxis(cfg *PyxisConfig) *Pyxis {
 
 var _ Arbiter = &Pyxis{}
 
-func (p *Pyxis) Schedule(req *workload.ClientRequest) int {
+func (p *Pyxis) Schedule(req *workload.ClientRequest) (dest int) {
 	x := float64(atomic.LoadInt64(&p.turningPoint)) / PyxisRangeFactor
 	taskRange := p.taskBoundary[req.TypeID]
-	if x < taskRange[0] {
-		return ToStorage
+	if x <= taskRange[0] {
+		dest = ToStorage
 	} else if x >= taskRange[1] {
-		return ToCompute
+		dest = ToCompute
 	} else {
-		if rand.Float64() < x-taskRange[0] {
-			return ToStorage
+		if rand.Float64()*(taskRange[1]-taskRange[0]) < x-taskRange[0] {
+			dest = ToCompute
 		} else {
-			return ToCompute
+			dest = ToStorage
 		}
 	}
+	// p.logger.V(1).Info(fmt.Sprintf("Schedule type %d->%d %.2f|[%.2f,%.2f]", req.TypeID, dest, x, taskRange[0], taskRange[1]))
+	return dest
 }
 
 func (p *Pyxis) Finish(resp *workload.ClientResponse) {
@@ -70,52 +73,55 @@ func (p *Pyxis) Finish(resp *workload.ClientResponse) {
 }
 
 func (p *Pyxis) Run(ctx context.Context) {
-	logger := log.FromContext(ctx)
+	p.logger = log.FromContext(ctx)
 	interval := time.Duration(p.cfg.IntervalSecs * float64(time.Second))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			p.xloop(logger)
+			p.xloop()
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-func (p *Pyxis) xloop(logger logr.Logger) {
+func (p *Pyxis) xloop() {
 	lastTput, Tput := p.tputMetric.Cut()
 	lastX, X := p.lastTurningPoint, atomic.LoadInt64(&p.turningPoint)
 	p.lastTurningPoint = X
 	if lastTput == 0 {
+		p.logger.V(1).Info("Xloop skip")
 		return
 	}
 	p.tightenBounds(lastX, X, Tput-lastTput)
 
 	if p.converged ||
 		float64(p.upperbound-p.lowerbound)/PyxisRangeFactor < p.cfg.StopPrecision ||
-		math.Abs(float64(X)/PyxisRangeFactor-p.cfg.ReferencePoint) < p.cfg.StopPrecision {
+		p.cfg.ReferencePoint >= 0 && math.Abs(float64(X)/PyxisRangeFactor-p.cfg.ReferencePoint) < p.cfg.StopPrecision {
 		if !p.converged {
 			p.converged = true
-			logger.Info("Xloop converged", "x", X, "range", fmt.Sprintf("[%d,%d]", p.lowerbound, p.upperbound))
+			p.logger.Info("Xloop converged", "x", X, "range", fmt.Sprintf("[%d,%d]", p.lowerbound, p.upperbound))
 		}
-		return
 	}
 
-	step := int64(p.cfg.StepSizeRel * float64(p.upperbound-p.lowerbound))
-	direction := float64(X-lastX) * (Tput - lastTput)
-	if direction == 0 {
-		direction = rand.Float64() - 0.5
-	}
 	nextX := X
-	if direction > 0 {
-		nextX += step
-	} else {
-		nextX -= step
+	if !p.converged {
+		step := int64(p.cfg.StepSizeRel * float64(p.upperbound-p.lowerbound))
+		direction := float64(X-lastX) * (Tput - lastTput)
+		if direction == 0 {
+			direction = 0.5*PyxisRangeFactor - float64(X)
+		}
+		if direction > 0 {
+			nextX += step
+		} else {
+			nextX -= step
+		}
+		nextX = int64(math.Min(math.Max(float64(nextX), float64(p.lowerbound)), float64(p.upperbound)))
+		atomic.StoreInt64(&p.turningPoint, nextX)
 	}
-	atomic.StoreInt64(&p.turningPoint, nextX)
-	logger.V(1).Info("Xloop enter", "x", fmt.Sprintf("%d->%d->%d", lastX, X, nextX), "range", fmt.Sprintf("[%d,%d]", p.lowerbound, p.upperbound), "tput", fmt.Sprintf("%.2fK->%.2fK", lastTput/1000., Tput/1000.))
+	p.logger.V(1).Info("Xloop enter", "converged", p.converged, "x", fmt.Sprintf("%d->%d->%d", lastX, X, nextX), "range", fmt.Sprintf("[%d,%d]", p.lowerbound, p.upperbound), "tput", fmt.Sprintf("%.2fK->%.2fK", lastTput/1000., Tput/1000.))
 }
 
 func (p *Pyxis) tightenBounds(lastX, X int64, delta float64) {
@@ -126,13 +132,13 @@ func (p *Pyxis) tightenBounds(lastX, X int64, delta float64) {
 		if X-lastX > 0 {
 			p.lowerbound = lastX
 		} else {
-			p.upperbound = X
+			p.upperbound = lastX
 		}
 	} else {
 		if X-lastX > 0 {
 			p.upperbound = X
 		} else {
-			p.lowerbound = lastX
+			p.lowerbound = X
 		}
 	}
 }

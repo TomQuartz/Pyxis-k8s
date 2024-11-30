@@ -29,7 +29,7 @@ type KayakConfig struct {
 
 type PyxisConfig struct {
 	ArbiterConfig
-	StepSizeRel    float64 `json:"stepSize"`
+	StepSizeRel    float64 `json:"stepSizeRel"`
 	StopPrecision  float64 `json:"stopPrecision"`
 	ReferencePoint float64 `json:"referencePoint,omitempty"`
 }

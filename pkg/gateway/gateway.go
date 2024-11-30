@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/tomquartz/pyxis-k8s/pkg/gateway/arbiter"
 	"github.com/tomquartz/pyxis-k8s/pkg/workload"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type Gateway struct {
@@ -37,10 +39,11 @@ func (g *Gateway) Output() <-chan *workload.ClientResponse {
 
 func (g *Gateway) Run(ctx context.Context) {
 	go g.arbiter.Run(ctx)
+	logger := log.FromContext(ctx)
 	for {
 		select {
 		case req := <-g.requestChan:
-			go g.handleRequest(ctx, req)
+			go g.handleRequest(ctx, logger, req)
 		case <-ctx.Done():
 			return
 		}
@@ -48,7 +51,7 @@ func (g *Gateway) Run(ctx context.Context) {
 }
 
 // assume req is assigned ID
-func (g *Gateway) handleRequest(ctx context.Context, req *workload.ClientRequest) {
+func (g *Gateway) handleRequest(ctx context.Context, _ logr.Logger, req *workload.ClientRequest) {
 	resp := &workload.ClientResponse{}
 	defer func() {
 		resp.ID = req.ID
@@ -63,12 +66,15 @@ func (g *Gateway) handleRequest(ctx context.Context, req *workload.ClientRequest
 	start := time.Now()
 	// schedule
 	decision := g.arbiter.Schedule(req)
+	defer g.arbiter.Finish(resp)
 	var postURL string
 	switch decision {
 	case arbiter.ToCompute:
 		postURL = workload.ComputeServiceURL
+		// logger.V(1).Info(fmt.Sprintf("type %d -> compute", req.TypeID))
 	case arbiter.ToStorage:
 		postURL = workload.StoragePushdownServiceURL
+		// logger.V(1).Info(fmt.Sprintf("type %d -> storage", req.TypeID))
 	default:
 		resp.Status = workload.FAIL_SCHEDULE
 		resp.Result = "invalid arbiter decision"

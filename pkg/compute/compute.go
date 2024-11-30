@@ -91,11 +91,12 @@ func (w *ComputeWorker) HandleRequest(logger logr.Logger, req *workload.ClientRe
 			req.Error(fmt.Sprintf("failed to encode kv req to key: %v", key), http.StatusBadRequest)
 			return
 		}
-		_, err = http.Post(workload.StorageKVInternalURL, "application/json", bytes.NewReader(kvReqJson))
+		kvResp, err := http.Post(workload.StorageKVInternalURL, "application/json", bytes.NewReader(kvReqJson))
 		if err != nil {
 			req.Error(fmt.Sprintf("failed to post kv req to key %v: %v", key, err), http.StatusInternalServerError)
 			return
 		}
+		defer kvResp.Body.Close()
 	}
 	kvTime := time.Since(kvStartTime)
 
