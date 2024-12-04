@@ -24,12 +24,14 @@ mkdir -p experiments/$RUN/results
 arbiter="kayak"
 for maxout in ${KAYAK_MAXOUTS[@]}; do
     ./scripts/deploy.sh client -arbiter=$arbiter -maxout=$maxout -time=60 > experiments/$RUN/results/$arbiter-$maxout.log
+    sleep 10
 done
 
 # Pyxis
 arbiter="pyxis"
 for maxout in ${PYXIS_MAXOUTS[@]}; do
     ./scripts/deploy.sh client -arbiter=$arbiter -maxout=$maxout -time=60 > experiments/$RUN/results/$arbiter-$maxout.log
+    sleep 10
 done
 
 ./scripts/deploy.sh clean
