@@ -93,22 +93,39 @@ func (c *Client) Summary() string {
 	// tput
 	tput := float64(len(c.results)) / c.duration.Seconds()
 	// slowdown
-	prewarm := int(float64(len(c.results)) * 0.4)
+	prewarm := int(float64(len(c.results)) * 0.2)
 	results := c.results[prewarm:]
-	slowdowns := make([]float64, len(results))
-	slowdownSum := 0.
+	slowdowns := make([]float64, 0, len(results))
 	for _, resp := range results {
+		if resp.ComputeTimeSecs <= 0 {
+			continue
+		}
 		this := resp.Latency.Seconds() / resp.ComputeTimeSecs
 		slowdowns = append(slowdowns, this)
-		slowdownSum += this
 	}
 	// percentiles
 	sort.Float64s(slowdowns)
-	slowdownAvg := slowdownSum / float64(len(slowdowns))
 	slowdownP50 := slowdowns[len(slowdowns)/2]
+	slowdownP90 := slowdowns[len(slowdowns)*90/100]
+	slowdownP95 := slowdowns[len(slowdowns)*95/100]
 	slowdownP99 := slowdowns[len(slowdowns)*99/100]
+	slowdownAvg := avgF64Slice(slowdowns)
+	slowdownP90Avg := avgF64Slice(slowdowns[len(slowdowns)*90/100:])
+	slowdownP95Avg := avgF64Slice(slowdowns[len(slowdowns)*95/100:])
+	slowdownP99Avg := avgF64Slice(slowdowns[len(slowdowns)*99/100:])
 	// msg
 	tputMsg := fmt.Sprintf("Throughput: %.0f req/s\n", tput)
-	slowdownMsg := fmt.Sprintf("Slowdown: avg=%.1f p50=%.1f p99=%.1f\n", slowdownAvg, slowdownP50, slowdownP99)
+	slowdownMsg := fmt.Sprintf("Slowdown: avg=%.1f p50=%.1f p90=%.1f(%.1f) p95=%.1f(%.1f) p99=%.1f(%.1f)\n", slowdownAvg, slowdownP50, slowdownP90, slowdownP90Avg, slowdownP95, slowdownP95Avg, slowdownP99, slowdownP99Avg)
 	return tputMsg + slowdownMsg
+}
+
+func avgF64Slice(x []float64) float64 {
+	if len(x) == 0 {
+		return 0
+	}
+	sum := 0.
+	for _, v := range x {
+		sum += v
+	}
+	return sum / float64(len(x))
 }

@@ -81,23 +81,21 @@ func (w *ComputeWorker) HandleRequest(logger logr.Logger, req *workload.ClientRe
 
 	// kv accesses
 	kvStartTime := time.Now()
-	for i, key := range req.StorageKeys {
-		kvReq := &workload.StorageRequest{
-			ID:  fmt.Sprintf("%s-%d", req.ID, i),
-			Key: key,
-		}
-		kvReqJson, err := json.Marshal(kvReq)
-		if err != nil {
-			req.Error(fmt.Sprintf("failed to encode kv req to key: %v", key), http.StatusBadRequest)
-			return
-		}
-		kvResp, err := http.Post(workload.StorageKVInternalURL, "application/json", bytes.NewReader(kvReqJson))
-		if err != nil {
-			req.Error(fmt.Sprintf("failed to post kv req to key %v: %v", key, err), http.StatusInternalServerError)
-			return
-		}
-		defer kvResp.Body.Close()
+	kvReq := &workload.StorageRequest{
+		ID:   fmt.Sprintf("%s-kv", req.ID),
+		Keys: req.StorageKeys,
 	}
+	kvReqJson, err := json.Marshal(kvReq)
+	if err != nil {
+		req.Error(fmt.Sprintf("failed to encode kv req: %v", err), http.StatusBadRequest)
+		return
+	}
+	kvResp, err := http.Post(workload.StorageKVInternalURL, "application/json", bytes.NewReader(kvReqJson))
+	if err != nil {
+		req.Error(fmt.Sprintf("failed to post kv req: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer kvResp.Body.Close()
 	kvTime := time.Since(kvStartTime)
 
 	// compute

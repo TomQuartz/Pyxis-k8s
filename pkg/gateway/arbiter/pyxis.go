@@ -102,7 +102,7 @@ func (p *Pyxis) xloop() {
 		p.cfg.ReferencePoint >= 0 && math.Abs(float64(X)/PyxisRangeFactor-p.cfg.ReferencePoint) < p.cfg.StopPrecision {
 		if !p.converged {
 			p.converged = true
-			p.logger.Info("Xloop converged", "x", X, "range", fmt.Sprintf("[%d,%d]", p.lowerbound, p.upperbound))
+			p.logger.V(1).Info("Xloop converged", "x", X, "range", fmt.Sprintf("[%d,%d]", p.lowerbound, p.upperbound))
 		}
 	}
 

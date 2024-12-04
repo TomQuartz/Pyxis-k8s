@@ -66,7 +66,7 @@ type ClientResponse struct {
 
 type StorageRequest struct {
 	ID             string `json:"id"`
-	Key            string `json:"key,omitempty"`
+	Keys            []string `json:"keys,omitempty"`
 	ResponseWriter http.ResponseWriter
 	done           chan struct{}
 }

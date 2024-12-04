@@ -1,1 +1,4 @@
 *.log
+experiments/*/
+!experiments/example
+!experiments/example/**

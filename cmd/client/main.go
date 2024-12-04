@@ -109,6 +109,6 @@ func main() {
 	go gw.Run(ctx)
 	cl.Run(ctx)
 
-	fmt.Println("Finished")
+	ctrl.Log.Info("Finished")
 	fmt.Println(cl.Summary())
 }

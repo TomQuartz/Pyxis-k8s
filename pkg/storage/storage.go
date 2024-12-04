@@ -28,15 +28,18 @@ func NewStorageServer(nWorkers int) *StorageServer {
 }
 
 func (s *StorageServer) ServeKV(w http.ResponseWriter, r *http.Request) {
-	req := &workload.StorageRequest{}
-	err := json.NewDecoder(r.Body).Decode(req)
-	req = req.SetResponseWriter(w)
+	kvReq := &workload.StorageRequest{}
+	err := json.NewDecoder(r.Body).Decode(kvReq)
 	if err != nil {
-		req.Error(fmt.Sprintf("failed to decode request: %v", err), http.StatusBadRequest)
+		kvReq.SetResponseWriter(w).Error(fmt.Sprintf("failed to decode request: %v", err), http.StatusBadRequest)
 		return
 	}
-	s.workerChan <- req
-	<-req.Done()
+	for i, key := range kvReq.Keys {
+		req := &workload.StorageRequest{ID: fmt.Sprintf("%s-%d", kvReq.ID, i), Keys: []string{key}}
+		req = req.SetResponseWriter(w)
+		s.workerChan <- req
+		<-req.Done()
+	}
 }
 
 func (s *StorageServer) ServePushdown(w http.ResponseWriter, r *http.Request) {
