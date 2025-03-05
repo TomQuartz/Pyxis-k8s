@@ -115,8 +115,8 @@ func (g *Gateway) handleRequest(ctx context.Context, _ logr.Logger, req *workloa
 	}
 	resp.Status = workload.SUCCESS
 	resp.Latency = time.Since(start)
-	if resp.ComputeTimeSecs <= 0 || resp.StorageTimeSecs <= 0 {
-		resp.Status = workload.FAIL_UNMARSHAL
-		resp.Result = "invalid response: zero compute or storage time: " + resp.Result
-	}
+	// if resp.ComputeTimeSecs <= 0 || resp.StorageTimeSecs <= 0 {
+	// 	resp.Status = workload.FAIL_UNMARSHAL
+	// 	resp.Result = "invalid response: zero compute or storage time: " + resp.Result
+	// }
 }

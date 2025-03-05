@@ -82,10 +82,12 @@ func (c *Client) newRequest(id int) *workload.ClientRequest {
 		storageKeys[i] = fmt.Sprintf("%d", rand.Intn(profile.NumKV))
 	}
 	return &workload.ClientRequest{
-		ID:          fmt.Sprintf("%d", id),
-		TypeID:      typeID,
-		StorageKeys: storageKeys,
-		ComputeSecs: profile.ComputeSecs,
+		ID:     fmt.Sprintf("%d", id),
+		TypeID: typeID,
+		DefaultFuncRequest: &workload.DefaultFuncRequest{
+			StorageKeys: storageKeys,
+			ComputeSecs: profile.ComputeSecs,
+		},
 	}
 }
 

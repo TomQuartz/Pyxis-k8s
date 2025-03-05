@@ -78,7 +78,16 @@ func (w *ComputeWorker) HandleRequest(logger logr.Logger, req *workload.ClientRe
 	}
 	defer req.Close()
 	logger.V(1).Info("processing request", "request", req.ID)
+	if req.DefaultFuncRequest != nil {
+		w.HandleDefaultFunc(logger, req)
+	} else if req.PointerChasingFuncRequest != nil {
+		w.HandlePointerChasing(logger, req)
+	} else {
+		req.Error("unknown request", http.StatusBadRequest)
+	}
+}
 
+func (w *ComputeWorker) HandleDefaultFunc(logger logr.Logger, req *workload.ClientRequest) {
 	// kv accesses
 	kvStartTime := time.Now()
 	kvReq := &workload.StorageRequest{
@@ -110,5 +119,53 @@ func (w *ComputeWorker) HandleRequest(logger logr.Logger, req *workload.ClientRe
 		StorageTimeSecs: kvTime.Seconds(),
 		ComputeTimeSecs: computeTime.Seconds(),
 	}
-	req.Reply(resp)
+	if err := req.Reply(resp); err != nil {
+		logger.Error(err, "failed to reply", "request", req.ID)
+	}
+	logger.V(1).Info("Finish default func", "request", req.ID)
+}
+
+func (w *ComputeWorker) HandlePointerChasing(logger logr.Logger, req *workload.ClientRequest) {
+	// kv accesses
+	kvStartTime := time.Now()
+	key := req.PointerChasingFuncRequest.InitialKey
+	for i := 0; i < req.PointerChasingFuncRequest.NumHops; i++ {
+		kvReq := &workload.StorageRequest{
+			ID:   fmt.Sprintf("%s-%d", req.ID, i),
+			Keys: []string{key},
+		}
+		kvReqJson, err := json.Marshal(kvReq)
+		if err != nil {
+			req.Error(fmt.Sprintf("failed to encode kv req: %v", err), http.StatusBadRequest)
+			return
+		}
+		httpResp, err := http.Post(workload.StorageKVInternalURL, "application/json", bytes.NewReader(kvReqJson))
+		if err != nil {
+			req.Error(fmt.Sprintf("failed to post kv req: %v", err), http.StatusInternalServerError)
+			return
+		}
+		defer httpResp.Body.Close()
+		resp := &workload.StorageResponse{}
+		if err := json.NewDecoder(httpResp.Body).Decode(resp); err != nil {
+			req.Error(fmt.Sprintf("failed to decode kv resp: %v", err), http.StatusInternalServerError)
+			return
+		}
+		key = resp.Value
+		if key == "N/A" {
+			break
+		}
+	}
+	kvTime := time.Since(kvStartTime)
+
+	// reply
+	logger.V(1).Info("finish request", "request", req.ID)
+	resp := &workload.ClientResponse{
+		ID:              req.ID,
+		Result:          key,
+		StorageTimeSecs: kvTime.Seconds(),
+	}
+	if err := req.Reply(resp); err != nil {
+		logger.Error(err, "failed to reply", "request", req.ID)
+	}
+	logger.V(1).Info("Finish pointer chasing func", "request", req.ID)
 }
