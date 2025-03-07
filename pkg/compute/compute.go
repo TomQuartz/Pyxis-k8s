@@ -32,7 +32,7 @@ func (s *ComputeServer) Serve(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(req)
 	req = req.SetResponseWriter(w)
 	if err != nil {
-		req.Error(fmt.Sprintf("failed to decode request: %v", err), http.StatusBadRequest)
+		req.Error(fmt.Errorf("failed to decode request: %v", err), http.StatusBadRequest)
 		return
 	}
 	s.workerChan <- req
@@ -83,7 +83,7 @@ func (w *ComputeWorker) HandleRequest(logger logr.Logger, req *workload.ClientRe
 	} else if req.PointerChasingFuncRequest != nil {
 		w.HandlePointerChasing(logger, req)
 	} else {
-		req.Error("unknown request", http.StatusBadRequest)
+		req.Error(fmt.Errorf("unknown request"), http.StatusBadRequest)
 	}
 }
 
@@ -96,12 +96,12 @@ func (w *ComputeWorker) HandleDefaultFunc(logger logr.Logger, req *workload.Clie
 	}
 	kvReqJson, err := json.Marshal(kvReq)
 	if err != nil {
-		req.Error(fmt.Sprintf("failed to encode kv req: %v", err), http.StatusBadRequest)
+		req.Error(fmt.Errorf("failed to encode kv req: %v", err), http.StatusBadRequest)
 		return
 	}
 	kvResp, err := http.Post(workload.StorageKVInternalURL, "application/json", bytes.NewReader(kvReqJson))
 	if err != nil {
-		req.Error(fmt.Sprintf("failed to post kv req: %v", err), http.StatusInternalServerError)
+		req.Error(fmt.Errorf("failed to post kv req: %v", err), http.StatusInternalServerError)
 		return
 	}
 	defer kvResp.Body.Close()
@@ -136,21 +136,21 @@ func (w *ComputeWorker) HandlePointerChasing(logger logr.Logger, req *workload.C
 		}
 		kvReqJson, err := json.Marshal(kvReq)
 		if err != nil {
-			req.Error(fmt.Sprintf("failed to encode kv req: %v", err), http.StatusBadRequest)
+			req.Error(fmt.Errorf("failed to encode kv req: %v", err), http.StatusBadRequest)
 			return
 		}
 		httpResp, err := http.Post(workload.StorageKVInternalURL, "application/json", bytes.NewReader(kvReqJson))
 		if err != nil {
-			req.Error(fmt.Sprintf("failed to post kv req: %v", err), http.StatusInternalServerError)
+			req.Error(fmt.Errorf("failed to post kv req: %v", err), http.StatusInternalServerError)
 			return
 		}
 		defer httpResp.Body.Close()
 		resp := &workload.StorageResponse{}
 		if err := json.NewDecoder(httpResp.Body).Decode(resp); err != nil {
-			req.Error(fmt.Sprintf("failed to decode kv resp: %v", err), http.StatusInternalServerError)
+			req.Error(fmt.Errorf("failed to decode kv resp: %v", err), http.StatusInternalServerError)
 			return
 		}
-		key = resp.Value
+		key = resp.Values[0]
 		if key == "N/A" {
 			break
 		}

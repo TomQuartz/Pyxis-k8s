@@ -20,6 +20,7 @@ const (
 )
 
 type StorageServer struct {
+	logger     logr.Logger
 	workerChan chan interface{}
 	nWorkers   int
 	mu         sync.Mutex
@@ -37,18 +38,38 @@ func NewStorageServer(nWorkers int) *StorageServer {
 func (s *StorageServer) ServeKV(w http.ResponseWriter, r *http.Request) {
 	kvReq := &workload.StorageRequest{}
 	err := json.NewDecoder(r.Body).Decode(kvReq)
+	kvReq.SetResponseWriter(w)
 	if err != nil {
-		kvReq.SetResponseWriter(w).Error(fmt.Sprintf("failed to decode request: %v", err), http.StatusBadRequest)
+		kvReq.Error(fmt.Errorf("failed to decode request: %v", err), http.StatusBadRequest)
 		return
 	}
+	workerResps := make([]*workload.StorageResponse, len(kvReq.Keys))
+	wg := sync.WaitGroup{}
+	wg.Add(len(kvReq.Keys))
 	for i := range kvReq.Keys {
-		req := &workload.StorageRequest{ID: fmt.Sprintf("%s-%d", kvReq.ID, i), Keys: []string{kvReq.Keys[i]}}
-		if len(kvReq.Values) > i {
-			req.Values = []string{kvReq.Values[i]}
+		go func(i int) {
+			defer wg.Done()
+			req := &workload.StorageRequest{ID: fmt.Sprintf("%s-%d", kvReq.ID, i), Keys: []string{kvReq.Keys[i]}}
+			if len(kvReq.Values) > i {
+				req.Values = []string{kvReq.Values[i]}
+			}
+			req.SetResponseWriter(nil)
+			s.workerChan <- req
+			workerResps[i] = <-req.Done()
+		}(i)
+	}
+	wg.Wait()
+	kvResp := &workload.StorageResponse{ID: kvReq.ID}
+	for _, r := range workerResps {
+		if r.Error != nil {
+			kvReq.Error(r.Error, http.StatusInternalServerError)
+			break
 		}
-		req = req.SetResponseWriter(w)
-		s.workerChan <- req
-		<-req.Done()
+		kvResp.Keys = append(kvResp.Keys, r.Keys...)
+		kvResp.Values = append(kvResp.Values, r.Values...)
+	}
+	if err := kvReq.Reply(kvResp); err != nil {
+		s.logger.Error(err, "server failed to reply", "request", kvReq.ID)
 	}
 }
 
@@ -57,7 +78,7 @@ func (s *StorageServer) ServePushdown(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(req)
 	req = req.SetResponseWriter(w)
 	if err != nil {
-		req.Error(fmt.Sprintf("failed to decode request: %v", err), http.StatusBadRequest)
+		req.Error(fmt.Errorf("server failed to decode request: %v", err), http.StatusBadRequest)
 		return
 	}
 	s.workerChan <- req
@@ -80,6 +101,7 @@ func (s *StorageServer) ServeMemoryUsageQuery(w http.ResponseWriter, r *http.Req
 
 func (s *StorageServer) Run(ctx context.Context) {
 	logger := log.FromContext(ctx)
+	s.logger = logger
 	for i := 0; i < s.nWorkers; i++ {
 		w := NewStorageWorker(i, s)
 		go w.Run(ctx)
@@ -126,29 +148,28 @@ func (w *StorageWorker) HandleRequest(logger logr.Logger, req interface{}) {
 }
 
 func (w *StorageWorker) HandleKV(logger logr.Logger, req *workload.StorageRequest) {
-	if req.ResponseWriter == nil {
-		panic("missing response writer")
-	}
 	defer req.Close()
 	if len(req.Keys) != 1 {
-		panic("server internal error: multiple keys sent to worker")
+		panic("internal error: multiple keys sent to worker")
 	}
-	logger.V(1).Info("processing kv request", "id", req.ID, "key", req.Keys[0])
+	logger.V(1).Info("worker processing kv request", "id", req.ID, "key", req.Keys[0])
 	resp := &workload.StorageResponse{ID: req.ID}
 	time.Sleep(KVAccessTimeSimulated)
 	if len(req.Values) > 0 {
 		w.put(req.Keys[0], req.Values[0])
 	} else {
-		if value, ok := w.get(req.Keys[0]); ok {
-			resp.Value = value
-		} else {
-			resp.Value = "N/A"
+		key := req.Keys[0]
+		value, ok := w.get(key)
+		if !ok {
+			value = "N/A"
 		}
+		resp.Keys = []string{key}
+		resp.Values = []string{value}
 	}
 	if err := req.Reply(resp); err != nil {
-		logger.Error(err, "failed to reply", "request", req.ID)
+		logger.Error(err, "worker failed to reply", "request", req.ID)
 	}
-	logger.V(1).Info("finish kv request", "request", req.ID)
+	logger.V(1).Info("worker finished kv request", "request", req.ID)
 }
 
 func (w *StorageWorker) HandlePushdown(logger logr.Logger, req *workload.ClientRequest) {
@@ -156,14 +177,14 @@ func (w *StorageWorker) HandlePushdown(logger logr.Logger, req *workload.ClientR
 		panic("missing response writer")
 	}
 	defer req.Close()
-	logger.V(1).Info("processing pushdown request", "request", req.ID)
+	logger.V(1).Info("worker processing pushdown request", "request", req.ID)
 
 	if req.DefaultFuncRequest != nil {
 		w.HandleDefaultFunc(logger, req)
 	} else if req.PointerChasingFuncRequest != nil {
 		w.HandlePointerChasing(logger, req)
 	} else {
-		req.Error("unknown request", http.StatusBadRequest)
+		req.Error(fmt.Errorf("unknown request"), http.StatusBadRequest)
 	}
 }
 
@@ -189,7 +210,7 @@ func (w *StorageWorker) HandleDefaultFunc(logger logr.Logger, req *workload.Clie
 	if err := req.Reply(resp); err != nil {
 		logger.Error(err, "failed to reply", "request", req.ID)
 	}
-	logger.V(1).Info("Finish pushdown default func", "request", req.ID)
+	logger.V(1).Info("worker finished pushdown default func", "request", req.ID)
 }
 
 func (w *StorageWorker) HandlePointerChasing(logger logr.Logger, req *workload.ClientRequest) {
@@ -215,9 +236,9 @@ func (w *StorageWorker) HandlePointerChasing(logger logr.Logger, req *workload.C
 		StorageTimeSecs: kvTime.Seconds(),
 	}
 	if err := req.Reply(resp); err != nil {
-		logger.Error(err, "failed to reply", "request", req.ID)
+		logger.Error(err, "worker failed to reply", "request", req.ID)
 	}
-	logger.V(1).Info("Finish pushdown pointer chasing func", "request", req.ID)
+	logger.V(1).Info("worker finished pushdown pointer chasing func", "request", req.ID)
 }
 
 func (w *StorageWorker) put(key, value string) {

@@ -46,13 +46,12 @@ func (c *ClientRequest) Close() {
 	close(c.done)
 }
 
-func (c *ClientRequest) Error(msg string, code int) {
-	http.Error(c.ResponseWriter, msg, code)
+func (c *ClientRequest) Error(err error, code int) {
+	http.Error(c.ResponseWriter, err.Error(), code)
 }
 
 func (c *ClientRequest) Reply(response *ClientResponse) error {
 	c.ResponseWriter.Header().Set("Content-Type", "application/json")
-	c.ResponseWriter.WriteHeader(http.StatusOK)
 	return json.NewEncoder(c.ResponseWriter).Encode(response)
 }
 
@@ -79,21 +78,26 @@ type StorageRequest struct {
 	Keys           []string `json:"keys,omitempty"`
 	Values         []string `json:"values,omitempty"`
 	ResponseWriter http.ResponseWriter
-	done           chan struct{}
+	done           chan *StorageResponse
 }
 
 type StorageResponse struct {
-	ID    string `json:"id"`
-	Value string `json:"value"`
+	ID     string   `json:"id"`
+	Keys   []string `json:"keys,omitempty"`
+	Values []string `json:"values,omitempty"`
+	Error  error
 }
 
 func (s *StorageRequest) SetResponseWriter(w http.ResponseWriter) *StorageRequest {
-	s.ResponseWriter = w
-	s.done = make(chan struct{})
+	if w != nil {
+		s.ResponseWriter = w
+	} else {
+		s.done = make(chan *StorageResponse)
+	}
 	return s
 }
 
-func (s *StorageRequest) Done() <-chan struct{} {
+func (s *StorageRequest) Done() <-chan *StorageResponse {
 	return s.done
 }
 
@@ -101,12 +105,23 @@ func (s *StorageRequest) Close() {
 	close(s.done)
 }
 
-func (s *StorageRequest) Error(msg string, code int) {
-	http.Error(s.ResponseWriter, msg, code)
+func (s *StorageRequest) Error(err error, code int) {
+	if s.ResponseWriter != nil {
+		http.Error(s.ResponseWriter, err.Error(), code)
+	} else {
+		s.done <- &StorageResponse{
+			ID:    s.ID,
+			Error: err,
+		}
+	}
 }
 
 func (s *StorageRequest) Reply(response *StorageResponse) error {
-	s.ResponseWriter.Header().Set("Content-Type", "application/json")
-	s.ResponseWriter.WriteHeader(http.StatusOK)
-	return json.NewEncoder(s.ResponseWriter).Encode(response)
+	if s.ResponseWriter != nil {
+		s.ResponseWriter.Header().Set("Content-Type", "application/json")
+		return json.NewEncoder(s.ResponseWriter).Encode(response)
+	} else {
+		s.done <- response
+		return nil
+	}
 }

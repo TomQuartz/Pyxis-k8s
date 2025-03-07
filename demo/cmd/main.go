@@ -15,9 +15,8 @@ func main() {
 	flag.IntVar(&numKeys, "keys", 1000, "Number of keys in the data store")
 	flag.Parse()
 
-	fmt.Printf("################### Pointer Chasing ###################n\n")
+	fmt.Printf("\n\n################### Pointer Chasing ###################n\n\n")
 	fmt.Printf("Number of hops: %d\n", numHops)
-	fmt.Printf("########################################################\n\n")
 
 	populateStorageServer(numKeys)
 

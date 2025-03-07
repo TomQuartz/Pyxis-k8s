@@ -37,26 +37,17 @@ func doComputeSideExecution(req *workload.ClientRequest) (*workload.ClientRespon
 			ID:   fmt.Sprintf("%s-%d", req.ID, i),
 			Keys: []string{key},
 		}
-		kvReqJson, err := json.Marshal(kvReq)
+		kvResp, err := doKVReq(kvReq)
 		if err != nil {
-			return nil, fmt.Errorf("failed to encode kv req: %v", err)
+			return nil, fmt.Errorf("failed to do kv req: %v", err)
 		}
-		httpResp, err := http.Post(workload.StorgeKVServiceURL, "application/json", bytes.NewReader(kvReqJson))
-		if err != nil {
-			return nil, fmt.Errorf("failed to post kv req: %v", err)
-		}
-		defer httpResp.Body.Close()
-		resp := &workload.StorageResponse{}
-		if err := json.NewDecoder(httpResp.Body).Decode(resp); err != nil {
-			return nil, fmt.Errorf("failed to decode kv resp: %v", err)
-		}
-		key = resp.Value
+		key = kvResp.Values[0]
 		if key == "N/A" {
 			break
 		}
 	}
 	kvTime := time.Since(kvStartTime)
-	fmt.Printf("Pointer chasing stopped at %s", key)
+	fmt.Printf("Pointer chasing stopped at %s\n", key)
 
 	resp := &workload.ClientResponse{
 		ID:              req.ID,
@@ -66,21 +57,21 @@ func doComputeSideExecution(req *workload.ClientRequest) (*workload.ClientRespon
 	return resp, nil
 }
 
-func doKVReq(req *workload.StorageRequest) (string, error) {
+func doKVReq(req *workload.StorageRequest) (*workload.StorageResponse, error) {
 	kvReqJson, err := json.Marshal(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to encode kv req: %v", err)
+		return nil, fmt.Errorf("failed to encode kv req: %v", err)
 	}
 	httpResp, err := http.Post(workload.StorgeKVServiceURL, "application/json", bytes.NewReader(kvReqJson))
 	if err != nil {
-		return "", fmt.Errorf("failed to post kv req: %v", err)
+		return nil, fmt.Errorf("failed to post kv req: %v", err)
 	}
 	defer httpResp.Body.Close()
 	resp := &workload.StorageResponse{}
 	if err := json.NewDecoder(httpResp.Body).Decode(resp); err != nil {
-		return "", fmt.Errorf("failed to decode kv resp: %v", err)
+		return nil, fmt.Errorf("failed to decode kv resp: %v", err)
 	}
-	return resp.Value, nil
+	return resp, nil
 }
 
 func populateStorageServer(nKeys int) {
